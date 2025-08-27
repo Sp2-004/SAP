@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+  <div class="container">
+    <h1>👤 Student Profile</h1>
+    
+    <div class="row">
+      <div class="col-md-8">
+        <div class="card mb-4">
+          <div class="card-header">
+            <h3>Academic Information</h3>
+          </div>
+          <div class="card-body">
+            {% if data %}
+            <div class="row">
+              <div class="col-md-6">
+                <h5>Attendance Summary</h5>
+                <ul class="list-unstyled">
+                  <li><strong>Overall Attendance:</strong> {{ data.overall.percentage }}%</li>
+                  <li><strong>Total Classes:</strong> {{ data.overall.present + data.overall.absent }}</li>
+                  <li><strong>Classes Attended:</strong> {{ data.overall.present }}</li>
+                  <li><strong>Classes Missed:</strong> {{ data.overall.absent }}</li>
+                  <li><strong>Current Streak:</strong> {{ data.streak }} days</li>
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h5>Performance Metrics</h5>
+                <ul class="list-unstyled">
+                  <li><strong>Subjects Enrolled:</strong> {{ data.subjects | length }}</li>
+                  <li><strong>Days Attended:</strong> {{ data.attended_days }}</li>
+                  <li><strong>Days Absent:</strong> {{ data.absent_days }}</li>
+                  <li><strong>Safe Bunk Days:</strong> {{ data.safe_bunk_days }}</li>
+                </ul>
+              </div>
+            </div>
+            
+            <hr>
+            
+            <h5>Subject-wise Performance</h5>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Subject Code</th>
+                    <th>Subject Name</th>
+                    <th>Attendance %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for code, subject in data.subjects.items() %}
+                  <tr>
+                    <td><strong>{{ code }}</strong></td>
+                    <td>{{ subject.name }}</td>
+                    <td>
+                      <span class="badge {% if subject.percentage >= 75 %}bg-success{% elif subject.percentage >= 65 %}bg-warning{% else %}bg-danger{% endif %}">
+                        {{ subject.percentage }}%
+                      </span>
+                    </td>
+                    <td>
+                      {% if subject.percentage >= 75 %}
+                      <span class="text-success">✅ Excellent</span>
+                      {% elif subject.percentage >= 65 %}
+                      <span class="text-warning">⚠️ Needs Improvement</span>
+                      {% else %}
+                      <span class="text-danger">❌ Critical</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+              <h5>No Profile Data Available</h5>
+              <p>Please log in first to view your profile information.</p>
+              <a href="/" class="btn btn-primary">Go to Login</a>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        
+        {% if data %}
+        <div class="card">
+          <div class="card-header">
+            <h3>Attendance Insights</h3>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-6">
+                <h5>📈 Strengths</h5>
+                <ul>
+                  {% set good_subjects = [] %}
+                  {% for code, subject in data.subjects.items() %}
+                    {% if subject.percentage >= 80 %}
+                      {% set _ = good_subjects.append((code, subject)) %}
+                    {% endif %}
+                  {% endfor %}
+                  
+                  {% if good_subjects %}
+                    {% for code, subject in good_subjects %}
+                    <li><strong>{{ code }}:</strong> {{ subject.percentage }}% attendance</li>
+                    {% endfor %}
+                  {% else %}
+                    <li class="text-muted">Work on improving attendance to see strengths here</li>
+                  {% endif %}
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h5>⚠️ Areas for Improvement</h5>
+                <ul>
+                  {% set weak_subjects = [] %}
+                  {% for code, subject in data.subjects.items() %}
+                    {% if subject.percentage < 75 %}
+                      {% set _ = weak_subjects.append((code, subject)) %}
+                    {% endif %}
+                  {% endfor %}
+                  
+                  {% if weak_subjects %}
+                    {% for code, subject in weak_subjects %}
+                    <li><strong>{{ code }}:</strong> {{ subject.percentage }}% (Need {{ (75 - subject.percentage) | round(1) }}% more)</li>
+                    {% endfor %}
+                  {% else %}
+                    <li class="text-success">Great job! All subjects above 75%</li>
+                  {% endif %}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      
+      <div class="col-md-4">
+        <div class="card mb-3">
+          <div class="card-header">
+            <h4>Quick Stats</h4>
+          </div>
+          <div class="card-body">
+            {% if data %}
+            <div class="text-center">
+              <div class="mb-3">
+                <h2 class="{% if data.overall.percentage >= 75 %}text-success{% else %}text-warning{% endif %}">
+                  {{ data.overall.percentage }}%
+                </h2>
+                <p class="text-muted">Overall Attendance</p>
+              </div>
+              
+              <div class="progress mb-3">
+                <div class="progress-bar {% if data.overall.percentage >= 75 %}bg-success{% else %}bg-warning{% endif %}" 
+                     role="progressbar" 
+                     style="width: {{ data.overall.percentage }}%" 
+                     aria-valuenow="{{ data.overall.percentage }}" 
+                     aria-valuemin="0" 
+                     aria-valuemax="100">
+                </div>
+              </div>
+              
+              <small class="text-muted">
+                {% if data.overall.percentage >= 75 %}
+                ✅ Meeting attendance requirement
+                {% else %}
+                ⚠️ Below 75% requirement
+                {% endif %}
+              </small>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        
+        <div class="card mb-3">
+          <div class="card-header">
+            <h4>Actions</h4>
+          </div>
+          <div class="card-body">
+            <div class="d-grid gap-2">
+              <a href="/dashboard" class="btn btn-primary">Dashboard</a>
+              <a href="/b_safe" class="btn btn-info">B-Safe Calculator</a>
+              <a href="/lab" class="btn btn-success">Lab Attendance</a>
+              <a href="/" class="btn btn-outline-secondary">Logout</a>
+            </div>
+          </div>
+        </div>
+        
+        {% if data %}
+        <div class="card">
+          <div class="card-header">
+            <h4>Recommendations</h4>
+          </div>
+          <div class="card-body">
+            {% if data.overall.percentage < 75 %}
+            <div class="alert alert-warning">
+              <small>
+                <strong>Action Required:</strong><br>
+                Attend more classes to reach 75% attendance requirement.
+              </small>
+            </div>
+            {% elif data.overall.percentage < 85 %}
+            <div class="alert alert-info">
+              <small>
+                <strong>Good Progress:</strong><br>
+                Keep maintaining regular attendance to stay above requirements.
+              </small>
+            </div>
+            {% else %}
+            <div class="alert alert-success">
+              <small>
+                <strong>Excellent Work:</strong><br>
+                Your attendance is outstanding! Keep it up.
+              </small>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Course {{ code }}{% endblock %}
+{% block content %}
+  <div class="row">
+    <div class="col-md-8">
+      <h1>📖 {{ code }} - {{ sub.name }}</h1>
+      
+      <div class="card mb-4">
+        <div class="card-header">
+          <h3>Current Status</h3>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-3">
+              <h4 class="text-primary">{{ sub.present }}</h4>
+              <p class="text-muted">Classes Attended</p>
+            </div>
+            <div class="col-md-3">
+              <h4 class="text-danger">{{ sub.absent }}</h4>
+              <p class="text-muted">Classes Missed</p>
+            </div>
+            <div class="col-md-3">
+              <h4 class="{% if sub.percentage >= 75 %}text-success{% else %}text-warning{% endif %}">
+                {{ sub.percentage }}%
+              </h4>
+              <p class="text-muted">Attendance Rate</p>
+            </div>
+            <div class="col-md-3">
+              <h4 class="text-info">{{ sub.safe_bunk_periods }}</h4>
+              <p class="text-muted">Safe Bunks</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card mb-4">
+        <div class="card-header">
+          <h3>Bunk Calculator</h3>
+        </div>
+        <div class="card-body">
+          <form method="get" class="mb-3">
+            <div class="row align-items-end">
+              <div class="col-md-6">
+                <label for="bunk" class="form-label">Number of periods to bunk:</label>
+                <input type="number" class="form-control" id="bunk" name="bunk" value="{{ bunk }}" min="0" max="20">
+              </div>
+              <div class="col-md-6">
+                <button type="submit" class="btn btn-primary">Calculate Impact</button>
+              </div>
+            </div>
+          </form>
+          
+          {% if bunk > 0 %}
+          <div class="alert {% if projected >= 75 %}alert-success{% else %}alert-danger{% endif %}">
+            <h5>📊 Projection Results:</h5>
+            <p><strong>If you bunk {{ bunk }} more periods in {{ code }}:</strong></p>
+            <ul>
+              <li>Your attendance will drop to: <strong>{{ projected }}%</strong></li>
+              <li>Total periods: {{ sub.present + sub.absent + bunk }}</li>
+              <li>Periods attended: {{ sub.present }}</li>
+              <li>Periods missed: {{ sub.absent + bunk }}</li>
+            </ul>
+            {% if projected < 75 %}
+            <p class="text-danger"><strong>⚠️ Warning:</strong> This will put you below the 75% attendance requirement for this subject!</p>
+            {% else %}
+            <p class="text-success"><strong>✅ Safe:</strong> You'll still maintain the required 75% attendance for this subject.</p>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      
+      {% if sub.percentage < 75 %}
+      <div class="card">
+        <div class="card-header bg-warning">
+          <h3>⚠️ Improvement Plan</h3>
+        </div>
+        <div class="card-body">
+          {% set required_classes = ((sub.present + sub.absent) * 0.75 - sub.present) | round(0, 'ceil') | int %}
+          {% if required_classes > 0 %}
+          <p><strong>Action Required:</strong> You need to attend at least <strong>{{ required_classes }}</strong> more consecutive classes to reach 75% attendance in this subject.</p>
+          {% else %}
+          <p><strong>Good News:</strong> You're very close to 75%! Just maintain regular attendance.</p>
+          {% endif %}
+          
+          <div class="progress mt-3">
+            <div class="progress-bar bg-warning" role="progressbar" style="width: {{ sub.percentage }}%" aria-valuenow="{{ sub.percentage }}" aria-valuemin="0" aria-valuemax="100">
+              {{ sub.percentage }}%
+            </div>
+            <div class="progress-bar bg-success" role="progressbar" style="width: {{ 75 - sub.percentage if sub.percentage < 75 else 0 }}%" aria-valuenow="{{ 75 - sub.percentage if sub.percentage < 75 else 0 }}" aria-valuemin="0" aria-valuemax="100">
+              Need {{ 75 - sub.percentage | round(1) }}%
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    
+    <div class="col-md-4">
+      <div class="card mb-3">
+        <div class="card-header">
+          <h4>Subject Details</h4>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            <li class="mb-2"><strong>Course Code:</strong> {{ code }}</li>
+            <li class="mb-2"><strong>Course Name:</strong> {{ sub.name }}</li>
+            <li class="mb-2"><strong>Total Classes:</strong> {{ sub.present + sub.absent }}</li>
+            <li class="mb-2"><strong>Attendance Days:</strong> {{ sub.attended_days }}</li>
+            <li class="mb-2"><strong>Absent Days:</strong> {{ sub.absent_days }}</li>
+            <li class="mb-2"><strong>Safe Bunk Days:</strong> {{ sub.safe_bunk_days }}</li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header">
+          <h4>Quick Actions</h4>
+        </div>
+        <div class="card-body">
+          <div class="d-grid gap-2">
+            <a href="/dashboard" class="btn btn-primary">← Back to Dashboard</a>
+            <a href="/b_safe" class="btn btn-info">Overall B-Safe</a>
+            <a href="/profile" class="btn btn-secondary">View Profile</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
