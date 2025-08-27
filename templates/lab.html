@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}Lab Attendance{% endblock %}
+{% block content %}
+  <div class="container">
+    <h1>🧪 Lab Attendance Tracker</h1>
+    <p class="lead">Track your laboratory session attendance and performance</p>
+    
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    
+    {% if success %}
+    <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    
+    <div class="row">
+      <div class="col-md-8">
+        <!-- Lab Record Upload Section -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <h3>📤 Upload Lab Record</h3>
+          </div>
+          <div class="card-body">
+            <form method="post" enctype="multipart/form-data" id="labUploadForm">
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label for="lab_code" class="form-label">Select Lab Subject:</label>
+                    <select class="form-select" id="lab_code" name="lab_code" required>
+                      <option value="">Loading lab subjects...</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label for="week_no" class="form-label">Week Number:</label>
+                    <select class="form-select" id="week_no" name="week_no" required>
+                      <option value="">Select Lab Subject First</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="mb-3">
+                <label for="title" class="form-label">Title of Experiment:</label>
+                <input type="text" class="form-control" id="title" name="title" required 
+                       placeholder="Select week to auto-fill title" readonly>
+              </div>
+              
+              <div class="mb-3">
+                <label for="images" class="form-label">Select Images:</label>
+                <input type="file" class="form-control" id="images" name="images" 
+                       multiple accept="image/*" required>
+                <div class="form-text">Select multiple images of your lab record. They will be compressed into a PDF.</div>
+              </div>
+              
+              <div class="mb-3">
+                <div id="imagePreview" class="row"></div>
+              </div>
+              
+              <button type="submit" class="btn btn-primary" id="uploadBtn">
+                <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                Upload Lab Record
+              </button>
+            </form>
+          </div>
+        </div>
+        
+        <div class="card mb-4">
+          <div class="card-header">
+            <h3>Lab Sessions Overview</h3>
+          </div>
+          <div class="card-body">
+            {% if data and data.subjects %}
+            <div class="table-responsive">
+              <table class="table table-striped">
+                <thead>
+                  <tr>
+                    <th>Lab Code</th>
+                    <th>Lab Name</th>
+                    <th>Sessions Attended</th>
+                    <th>Sessions Missed</th>
+                    <th>Attendance %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for code, subject in data.subjects.items() %}
+                  {% if 'LAB' in subject.name.upper() or 'PRACTICAL' in subject.name.upper() %}
+                  <tr>
+                    <td><strong>{{ code }}</strong></td>
+                    <td>{{ subject.name }}</td>
+                    <td><span class="badge bg-success">{{ subject.present }}</span></td>
+                    <td><span class="badge bg-danger">{{ subject.absent }}</span></td>
+                    <td>
+                      <span class="badge {% if subject.percentage >= 75 %}bg-success{% else %}bg-warning{% endif %}">
+                        {{ subject.percentage }}%
+                      </span>
+                    </td>
+                    <td>
+                      {% if subject.percentage >= 75 %}
+                      <span class="text-success">✅ Good</span>
+                      {% else %}
+                      <span class="text-warning">⚠️ Low</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endif %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+              <h5>No Lab Data Available</h5>
+              <p>Please log in first to view your lab attendance data.</p>
+              <a href="/" class="btn btn-primary">Go to Login</a>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        
+        {% if data and data.subjects %}
+        <div class="card">
+          <div class="card-header">
+            <h3>Lab Performance Tips</h3>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-6">
+                <h5>📋 Best Practices</h5>
+                <ul>
+                  <li>Attend all lab sessions - they're crucial for practical learning</li>
+                  <li>Complete lab assignments on time</li>
+                  <li>Maintain a proper lab record/journal</li>
+                  <li>Ask questions during lab sessions</li>
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h5>⚠️ Important Notes</h5>
+                <ul>
+                  <li>Lab attendance is often mandatory (90%+ required)</li>
+                  <li>Missing labs can affect your internal marks</li>
+                  <li>Some labs have make-up sessions - check with faculty</li>
+                  <li>Lab exams require good attendance record</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      
+      <div class="col-md-4">
+        {% if data %}
+        <div class="card mb-3">
+          <div class="card-header">
+            <h4>Lab Statistics</h4>
+          </div>
+          <div class="card-body">
+            {% set lab_subjects = [] %}
+            {% for code, subject in data.subjects.items() %}
+              {% if 'LAB' in subject.name.upper() or 'PRACTICAL' in subject.name.upper() %}
+                {% set _ = lab_subjects.append(subject) %}
+              {% endif %}
+            {% endfor %}
+            
+            {% if lab_subjects %}
+            {% set total_lab_present = lab_subjects | sum(attribute='present') %}
+            {% set total_lab_absent = lab_subjects | sum(attribute='absent') %}
+            {% set total_lab_sessions = total_lab_present + total_lab_absent %}
+            {% set lab_percentage = (total_lab_present / total_lab_sessions * 100) | round(2) if total_lab_sessions > 0 else 0 %}
+            
+            <ul class="list-unstyled">
+              <li class="mb-2">
+                <strong>Total Lab Sessions:</strong> {{ total_lab_sessions }}
+              </li>
+              <li class="mb-2">
+                <strong>Sessions Attended:</strong> {{ total_lab_present }}
+              </li>
+              <li class="mb-2">
+                <strong>Sessions Missed:</strong> {{ total_lab_absent }}
+              </li>
+              <li class="mb-2">
+                <strong>Overall Lab %:</strong> 
+                <span class="badge {% if lab_percentage >= 75 %}bg-success{% else %}bg-warning{% endif %}">
+                  {{ lab_percentage }}%
+                </span>
+              </li>
+            </ul>
+            {% else %}
+            <p class="text-muted">No lab subjects found in your current data.</p>
+            {% endif %}
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h4>Quick Actions</h4>
+          </div>
+          <div class="card-body">
+            <div class="d-grid gap-2">
+              <a href="/dashboard" class="btn btn-primary">View All Subjects</a>
+              <a href="/b_safe" class="btn btn-info">B-Safe Calculator</a>
+              <a href="/profile" class="btn btn-secondary">Profile Settings</a>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Load lab subjects
+      fetch('/get_lab_subjects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        const labSelect = document.getElementById('lab_code');
+        
+        if (data.subjects && data.subjects.length > 0) {
+          labSelect.innerHTML = '<option value="">Select Lab Subject</option>';
+          data.subjects.forEach(subject => {
+            const option = document.createElement('option');
+            option.value = subject.value;
+            option.textContent = subject.text;
+            labSelect.appendChild(option);
+          });
+        } else {
+          labSelect.innerHTML = '<option value="">No lab subjects available</option>';
+          console.log('No lab subjects returned from server');
+        }
+      })
+      .catch(error => {
+        console.error('Error loading lab subjects:', error);
+        const labSelect = document.getElementById('lab_code');
+        labSelect.innerHTML = '<option value="">Error loading subjects - Please try refreshing</option>';
+      });
+      
+      // Handle lab subject selection - load available weeks
+      document.getElementById('lab_code').addEventListener('change', function(e) {
+        const labCode = e.target.value;
+        const weekSelect = document.getElementById('week_no');
+        const titleInput = document.getElementById('title');
+        
+        // Reset week and title
+        weekSelect.innerHTML = '<option value="">Loading available weeks...</option>';
+        titleInput.value = '';
+        
+        if (!labCode) {
+          weekSelect.innerHTML = '<option value="">Select Lab Subject First</option>';
+          return;
+        }
+        
+        // Fetch available lab dates/weeks
+        fetch('/get_lab_dates', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ lab_code: labCode })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.dates && data.dates.length > 0) {
+            weekSelect.innerHTML = '<option value="">Select Available Week</option>';
+            data.dates.forEach(dateInfo => {
+              const option = document.createElement('option');
+              option.value = dateInfo.week_text; // <-- Use full week text, e.g., "Week-7"
+              option.textContent = `${dateInfo.week_text} (Due: ${dateInfo.submission_date})`;
+              option.dataset.title = dateInfo.experiment_title;
+              weekSelect.appendChild(option);
+            });
+          } else {
+            weekSelect.innerHTML = '<option value="">No available weeks for upload</option>';
+          }
+        })
+        .catch(error => {
+          console.error('Error loading lab dates:', error);
+          weekSelect.innerHTML = '<option value="">Error loading weeks</option>';
+        });
+      });
+      
+      // Handle week selection - auto-fill experiment title
+      document.getElementById('week_no').addEventListener('change', function(e) {
+        const weekNumber = e.target.value;
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        const titleInput = document.getElementById('title');
+        
+        if (weekNumber && selectedOption.dataset.title) {
+          titleInput.value = selectedOption.dataset.title;
+        } else {
+          titleInput.value = '';
+        }
+      });
+      
+      // Image preview functionality
+      document.getElementById('images').addEventListener('change', function(e) {
+        const preview = document.getElementById('imagePreview');
+        preview.innerHTML = '';
+        
+        Array.from(e.target.files).forEach((file, index) => {
+          if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const col = document.createElement('div');
+              col.className = 'col-md-3 mb-2';
+              col.innerHTML = `
+                <div class="card">
+                  <img src="${e.target.result}" class="card-img-top" style="height: 150px; object-fit: cover;">
+                  <div class="card-body p-2">
+                    <small class="text-muted">${file.name}</small>
+                  </div>
+                </div>
+              `;
+              preview.appendChild(col);
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+      });
+      
+    });
+  </script>
+{% endblock %}

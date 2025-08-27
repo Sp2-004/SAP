@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+  <h1>📊 Dashboard</h1>
+  <h2>Attendance Percentage: {{ data.overall.percentage }}%</h2>
+  <h3>Current Streak: {{ data.streak }} days</h3>
+  
+  <div class="row mb-4">
+    <div class="col-md-3">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-primary">{{ data.overall.present }}</h4>
+          <p class="card-text">Classes Attended</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-danger">{{ data.overall.absent }}</h4>
+          <p class="card-text">Classes Missed</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-success">{{ data.streak }}</h4>
+          <p class="card-text">Day Streak</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-center">
+        <div class="card-body">
+          <h4 class="text-info">{{ data.overall.safe_bunk_periods }}</h4>
+          <p class="card-text">Safe Bunks</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <h3>📅 Attendance Calendar</h3>
+  <div id="cal-heatmap"></div>
+  
+  <!-- Calendar CSS and JS -->
+  <link rel="stylesheet" href="https://unpkg.com/cal-heatmap@4.2.4/dist/cal-heatmap.css" />
+  <script src="https://unpkg.com/d3@7"></script>
+  <script src="https://unpkg.com/cal-heatmap@4.2.4/dist/cal-heatmap.min.js"></script>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const calendarData = {{ calendar_data | tojson }};
+      console.log('Calendar data:', calendarData);
+      
+      // Wait for libraries to load
+      setTimeout(function() {
+        if (typeof CalHeatmap === 'undefined') {
+          console.error('CalHeatmap library failed to load');
+          document.getElementById('cal-heatmap').innerHTML = '<div class="alert alert-warning">Calendar library failed to load. Showing simple attendance grid instead.</div>';
+          showSimpleCalendar(calendarData);
+          return;
+        }
+        
+        if (calendarData && calendarData.length > 0) {
+          try {
+            // Convert data to the format expected by CalHeatmap v4
+            const dataMap = {};
+            calendarData.forEach(item => {
+              const timestamp = new Date(item.date).getTime() / 1000;
+              dataMap[timestamp] = item.value;
+            });
+            
+            const cal = new CalHeatmap();
+            cal.paint({
+              itemSelector: '#cal-heatmap',
+              domain: 'month',
+              subDomain: 'day',
+              data: dataMap,
+              start: new Date('2025-08-01'),
+              range: 6,
+              cellSize: 15,
+              cellPadding: 2,
+              domainGutter: 10,
+              legend: [0, 1],
+              legendColors: ['#eee', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
+              onClick: function(date, nb) {
+                console.log('Clicked on date:', new Date(date), 'with value:', nb);
+              }
+            });
+          } catch (error) {
+            console.error('Calendar rendering error:', error);
+            document.getElementById('cal-heatmap').innerHTML = '<div class="alert alert-warning">Calendar could not be rendered. Error: ' + error.message + '</div>';
+            showSimpleCalendar(calendarData);
+          }
+        } else {
+          document.getElementById('cal-heatmap').innerHTML = '<div class="alert alert-info">No calendar data available yet. This might be due to date parsing issues. Check the console for details.</div>';
+        }
+      }, 1000);
+      
+      // Fallback simple calendar function
+      function showSimpleCalendar(data) {
+        if (!data || data.length === 0) return;
+        
+        let html = '<div class="simple-calendar mt-3"><h5>Attendance Overview</h5><div class="row">';
+        
+        data.forEach((item, index) => {
+          const date = new Date(item.date);
+          const dateStr = date.toLocaleDateString('en-GB');
+          const status = item.value === 1 ? 'Present' : 'Absent';
+          const badgeClass = item.value === 1 ? 'bg-success' : 'bg-danger';
+          
+          if (index % 7 === 0 && index > 0) html += '</div><div class="row">';
+          
+          html += `<div class="col">
+            <div class="card mb-2" style="min-height: 60px;">
+              <div class="card-body p-2 text-center">
+                <small class="d-block">${dateStr}</small>
+                <span class="badge ${badgeClass}">${status}</span>
+              </div>
+            </div>
+          </div>`;
+        });
+        
+        html += '</div></div>';
+        document.getElementById('cal-heatmap').innerHTML = html;
+      }
+    });
+  </script>
+  
+  <h3 class="mt-4">📚 Subject-wise Attendance</h3>
+  {{ table_html | safe }}
+  
+  <div class="mt-4">
+    <a href="/b_safe" class="btn btn-primary">B-Safe</a>
+    <a href="/lab" class="btn btn-primary">Lab</a>
+    <a href="/profile" class="btn btn-secondary">Profile</a>
+  </div>
+  
+  {% if data.overall.percentage < 75 %}
+    {% set required = (3 * data.overall.absent - data.overall.present) %}
+    <div class="alert alert-warning mt-4">
+      ⚠️ Warning: Your attendance is below 75%!
+      {% if required > 0 %}
+        📅 You need to attend at least {{ required }} more classes consecutively to reach 75% attendance.
+      {% else %}
+        🎉 You are already eligible. Just maintain your attendance!
+      {% endif %}
+    </div>
+  {% endif %}
+  
+  {% if data.overall.percentage >= 90 %}
+  <div class="alert alert-success mt-4">
+    🎉 <strong>Excellent Attendance!</strong> You're doing great with {{ data.overall.percentage }}% attendance.
+  </div>
+  {% elif data.overall.percentage >= 85 %}
+  <div class="alert alert-info mt-4">
+    👍 <strong>Good Attendance!</strong> Keep maintaining your {{ data.overall.percentage }}% attendance rate.
+  </div>
+  {% endif %}
+{% endblock %}

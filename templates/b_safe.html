@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}B-Safe Calculator{% endblock %}
+{% block content %}
+  <div class="row">
+    <div class="col-md-8">
+      <h1>🛡️ B-Safe Calculator</h1>
+      <p class="lead">Calculate how many classes you can safely bunk while maintaining 75% attendance</p>
+      
+      <div class="card mb-4">
+        <div class="card-header">
+          <h3>Overall Attendance Status</h3>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-4">
+              <h4 class="text-primary">{{ data.overall.present }}</h4>
+              <p class="text-muted">Classes Attended</p>
+            </div>
+            <div class="col-md-4">
+              <h4 class="text-danger">{{ data.overall.absent }}</h4>
+              <p class="text-muted">Classes Missed</p>
+            </div>
+            <div class="col-md-4">
+              <h4 class="{% if data.overall.percentage >= 75 %}text-success{% else %}text-warning{% endif %}">
+                {{ data.overall.percentage }}%
+              </h4>
+              <p class="text-muted">Current Percentage</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <h3>Bunk Calculator</h3>
+        </div>
+        <div class="card-body">
+          <form method="get" class="mb-3">
+            <div class="row align-items-end">
+              <div class="col-md-6">
+                <label for="bunk" class="form-label">Number of classes to bunk:</label>
+                <input type="number" class="form-control" id="bunk" name="bunk" value="{{ bunk }}" min="0" max="50">
+              </div>
+              <div class="col-md-6">
+                <button type="submit" class="btn btn-primary">Calculate Impact</button>
+              </div>
+            </div>
+          </form>
+          
+          {% if bunk > 0 %}
+          <div class="alert {% if projected >= 75 %}alert-success{% else %}alert-danger{% endif %}">
+            <h5>📊 Projection Results:</h5>
+            <p><strong>If you bunk {{ bunk }} more classes:</strong></p>
+            <ul>
+              <li>Your attendance will drop to: <strong>{{ projected }}%</strong></li>
+              <li>Total classes: {{ data.overall.present + data.overall.absent + bunk }}</li>
+              <li>Classes attended: {{ data.overall.present }}</li>
+              <li>Classes missed: {{ data.overall.absent + bunk }}</li>
+            </ul>
+            {% if projected < 75 %}
+            <p class="text-danger"><strong>⚠️ Warning:</strong> This will put you below the 75% attendance requirement!</p>
+            {% else %}
+            <p class="text-success"><strong>✅ Safe:</strong> You'll still maintain the required 75% attendance.</p>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Safe Bunking Guidelines</h3>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6">
+              <h5 class="text-success">✅ Safe to Bunk</h5>
+              <p><strong>{{ data.overall.safe_bunk_periods }}</strong> classes</p>
+              <small class="text-muted">Based on current attendance</small>
+            </div>
+            <div class="col-md-6">
+              <h5 class="text-info">📈 To Reach 75%</h5>
+              {% set required = (3 * data.overall.absent - data.overall.present) %}
+              {% if data.overall.percentage < 75 %}
+                {% if required > 0 %}
+                <p><strong>{{ required }}</strong> more classes needed</p>
+                <small class="text-muted">Attend consecutively to reach 75%</small>
+                {% else %}
+                <p><strong>Already eligible!</strong></p>
+                <small class="text-muted">Just maintain attendance</small>
+                {% endif %}
+              {% else %}
+              <p><strong>Already above 75%!</strong></p>
+              <small class="text-muted">Keep up the good work</small>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-header">
+          <h4>Quick Stats</h4>
+        </div>
+        <div class="card-body">
+          <ul class="list-unstyled">
+            <li class="mb-2">
+              <strong>Attendance Streak:</strong> {{ data.streak }} days
+            </li>
+            <li class="mb-2">
+              <strong>Days Attended:</strong> {{ data.attended_days }}
+            </li>
+            <li class="mb-2">
+              <strong>Days Absent:</strong> {{ data.absent_days }}
+            </li>
+            <li class="mb-2">
+              <strong>Safe Bunk Days:</strong> {{ data.safe_bunk_days }}
+            </li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="card mt-3">
+        <div class="card-header">
+          <h4>Subject-wise Safe Bunks</h4>
+        </div>
+        <div class="card-body">
+          {% for code, subject in data.subjects.items() %}
+          <div class="mb-2">
+            <strong>{{ code }}:</strong> 
+            <span class="badge bg-primary">{{ subject.safe_bunk_periods }} periods</span>
+            <br>
+            <small class="text-muted">{{ subject.percentage }}% attendance</small>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="mt-4">
+    <a href="/dashboard" class="btn btn-secondary">← Back to Dashboard</a>
+  </div>
+{% endblock %}
