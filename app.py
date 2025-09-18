@@ -1,13 +1,5 @@
 import hashlib
-
-# Monkey-patch for openssl_md5() compatibility with Werkzeug's secure_filename
-if hasattr(hashlib, "md5"):
-    _original_md5 = hashlib.md5
-    def _md5_patch(*args, **kwargs):
-        return _original_md5(*args)
-    hashlib.md5 = _md5_patch
-
-# Now import everything else
+import os
 from flask import Flask, render_template, request, session, redirect, url_for
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -19,25 +11,25 @@ from tabulate import tabulate
 import time
 import re
 from datetime import datetime
-import os
 from PIL import Image
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
 import json
-import time
-
 import tempfile
 from werkzeug.utils import secure_filename
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from upstash_redis import Redis
 
-
-
+# Monkey-patch for openssl_md5() compatibility with Werkzeug's secure_filename
+if hasattr(hashlib, "md5"):
+    _original_md5 = hashlib.md5
+    def _md5_patch(*args, **kwargs):
+        return _original_md5(*args)
+    hashlib.md5 = _md5_patch
 
 app = Flask(__name__)
-#app.secret_key = 'd3a555c134099aaf6518e8ebde5af63961f84488351346ab2ecc21f95f61a8bc'
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 
 COLLEGE_LOGIN_URL = "https://samvidha.iare.ac.in/"
@@ -88,10 +80,18 @@ def _build_chrome_options():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # Try to find a chromium/chrome binary
+    
+    # Explicitly set Chromium binary
+    chromium_bin = "/usr/bin/chromium"
+    if os.path.isfile(chromium_bin):
+        options.binary_location = chromium_bin
+        print(f"DEBUG: Using Chromium binary: {chromium_bin}")
+    else:
+        print(f"DEBUG: Chromium binary not found at {chromium_bin}")
+    
+    # Check fallback Chrome binaries
     candidate_bins = [
         os.environ.get("CHROME_BIN"),
-        "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
@@ -99,10 +99,18 @@ def _build_chrome_options():
     for b in candidate_bins:
         if b and os.path.isfile(b):
             options.binary_location = b
+            print(f"DEBUG: Using fallback binary: {b}")
             break
     return options
 
 def _create_chromedriver_service():
+    # Explicitly set Chromium-driver path
+    chromedriver_path = "/usr/bin/chromedriver"
+    if os.path.isfile(chromedriver_path):
+        print(f"DEBUG: Using Chromium-driver: {chromedriver_path}")
+        return Service(chromedriver_path)
+    
+    # Check fallback paths
     candidates = [
         os.environ.get("CHROMEDRIVER_PATH"),
         "/usr/lib/chromium/chromedriver",
@@ -111,12 +119,17 @@ def _create_chromedriver_service():
     ]
     for p in candidates:
         if p and os.path.isfile(p):
+            print(f"DEBUG: Using fallback Chromium-driver: {p}")
             return Service(p)
+    
+    # Fallback to webdriver-manager
+    print("DEBUG: Falling back to webdriver-manager")
     try:
         path = ChromeDriverManager().install()
+        print(f"DEBUG: Webdriver-manager installed ChromeDriver at: {path}")
         return Service(path)
-    except Exception:
-        # Let Selenium Manager try to resolve
+    except Exception as e:
+        print(f"DEBUG: Webdriver-manager failed: {str(e)}")
         return Service()
 
 def get_attendance_data(username, password):
@@ -126,19 +139,19 @@ def get_attendance_data(username, password):
     try:
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
-        print(driver.page_source[:1000])  # Print first 1000 characters for debugging
+        print(f"DEBUG: Loaded login page: {driver.current_url}")
+        print(driver.page_source[:1000])
 
         try:
             driver.find_element(By.ID, "txt_uname").send_keys(username)
             driver.find_element(By.ID, "txt_pwd").send_keys(password)
             driver.find_element(By.ID, "but_submit").click()
-        except Exception:
-            # Fallback: Try generic input selection
+        except Exception as e:
+            print(f"DEBUG: Login error: {str(e)}")
             inputs = driver.find_elements(By.TAG_NAME, "input")
             if len(inputs) >= 2:
                 inputs[0].send_keys(username)
                 inputs[1].send_keys(password)
-                # Try to find and click the login button
                 try:
                     driver.find_element(By.ID, "but_submit").click()
                 except:
@@ -148,11 +161,9 @@ def get_attendance_data(username, password):
                 raise Exception("Could not find login input fields")
 
         time.sleep(3)
-        # 🔎 Better login check
         if "home" not in driver.current_url:
             return {"error": "Invalid username or password."}
 
-        # 🔎 Instead of forcing get(), click the menu item for Attendance
         try:
             attendance_link = driver.find_element(By.LINK_TEXT, "Course Content")
             attendance_link.click()
@@ -168,11 +179,11 @@ def get_attendance_data(username, password):
         return calculate_attendance_percentage(rows)
 
     except Exception as e:
-        # print error for debugging
-        print("DEBUG ERROR:", str(e))
+        print(f"DEBUG ERROR: {str(e)}")
         return {"error": f"Exception: {str(e)}"}
     finally:
         driver.quit()
+
 def calculate_attendance_percentage(rows):
     result = {
         "subjects": {},
@@ -223,25 +234,19 @@ def calculate_attendance_percentage(rows):
             total_present += present_count
             total_absent += absent_count
 
-            # Enhanced date matching for various formats
             date_match = re.search(r'(\d{1,2}\s[A-Za-z]{3},?\s\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{1,2}\s[A-Za-z]{3})', text)
             if date_match:
                 date_str = date_match.group(1).strip()
                 
-                # Convert various date formats to DD-MM-YYYY
                 try:
                     if ',' in date_str:
-                        # Format: "20 Aug, 2025" or "20 Aug,2025"
                         date_str = date_str.replace(',', '').strip()
                         dt = datetime.strptime(date_str, "%d %b %Y")
                     elif re.match(r'\d{1,2}\s[A-Za-z]{3}\s\d{4}', date_str):
-                        # Format: "20 Aug 2025"
                         dt = datetime.strptime(date_str, "%d %b %Y")
                     elif re.match(r'\d{1,2}\s[A-Za-z]{3}', date_str):
-                        # Format: "20 Aug" (assume current year)
                         dt = datetime.strptime(f"{date_str} 2025", "%d %b %Y")
                     elif re.match(r'\d{1,2}[-/]\d{1,2}[-/]\d{4}', date_str):
-                        # Format: "20-08-2025" or "20/08/2025"
                         date_str = date_str.replace('/', '-')
                         dt = datetime.strptime(date_str, "%d-%m-%Y")
                     else:
@@ -287,7 +292,6 @@ def calculate_attendance_percentage(rows):
     result["date_attendance"] = date_attendance
     result["per_course_date_attendance"] = per_course_date_attendance
 
-    # Calculate streak and other date-based metrics
     if date_attendance:
         try:
             dates = sorted(date_attendance.keys(), key=lambda x: datetime.strptime(x, "%d-%m-%Y"))
@@ -314,7 +318,6 @@ def login_page():
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if request.method == "GET":
-        # Handle GET requests (navigation from other pages)
         data = session.get('attendance_data')
         if not data:
             username = session.get('username')
@@ -331,7 +334,6 @@ def dashboard():
         for date_key in date_attendance:
             try:
                 dt = datetime.strptime(date_key, "%d-%m-%Y")
-                # 1 = present, -1 = absent, 0 = holiday (no record)
                 present_cnt = date_attendance[date_key]['present']
                 absent_cnt = date_attendance[date_key]['absent']
                 value = 1 if present_cnt > 0 else (-1 if absent_cnt > 0 else 0)
@@ -351,7 +353,6 @@ def dashboard():
         
         return render_template("dashboard.html", data=data, calendar_data=calendar_data, table_html=table_html)
     
-    # Handle POST requests (login)
     username = request.form["username"]
     password = request.form["password"]
 
@@ -372,7 +373,6 @@ def dashboard():
     calendar_data = []
     date_attendance = data.get('date_attendance', {})
     
-    # Debug: Print date_attendance to see what we have
     print("DEBUG: date_attendance =", date_attendance)
     
     for date_key in date_attendance:
@@ -386,7 +386,6 @@ def dashboard():
             print(f"DEBUG: Failed to parse date: {date_key}")
             continue
     
-    # Debug: Print calendar_data to see what we're sending to template
     print("DEBUG: calendar_data =", calendar_data)
 
     table_data = []
@@ -402,12 +401,10 @@ def dashboard():
     return render_template("dashboard.html", data=data, calendar_data=calendar_data, table_html=table_html)
 
 def get_lab_subjects(username, password):
-    """Fetch lab subjects from the website"""
     options = _build_chrome_options()
     driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
-        # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
         try:
@@ -415,7 +412,6 @@ def get_lab_subjects(username, password):
             driver.find_element(By.ID, "txt_pwd").send_keys(password)
             driver.find_element(By.ID, "but_submit").click()
         except Exception:
-            # Fallback: Try generic input selection
             inputs = driver.find_elements(By.TAG_NAME, "input")
             if len(inputs) >= 2:
                 inputs[0].send_keys(username)
@@ -429,11 +425,9 @@ def get_lab_subjects(username, password):
                 raise Exception("Could not find login input fields")
         time.sleep(3)
 
-        # Navigate to lab record page
         driver.get("https://samvidha.iare.ac.in/home?action=labrecord_std")
         time.sleep(3)
 
-        # Find the first select dropdown (Subject dropdown)
         try:
             lab_select_element = driver.find_element(By.CSS_SELECTOR, "select")
             lab_select = Select(lab_select_element)
@@ -458,12 +452,10 @@ def get_lab_subjects(username, password):
         driver.quit()
 
 def get_lab_dates(username, password, lab_code):
-    """Fetch available lab dates and experiment details for a specific lab"""
     options = _build_chrome_options()
     driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
-        # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
         try:
@@ -481,45 +473,36 @@ def get_lab_dates(username, password, lab_code):
                     driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
         time.sleep(3)
 
-        # Navigate to lab record page
         driver.get("https://samvidha.iare.ac.in/home?action=labrecord_std")
         time.sleep(3)
 
-        # Select the lab from first dropdown
         lab_select_element = driver.find_element(By.CSS_SELECTOR, "select")
         lab_select = Select(lab_select_element)
         lab_select.select_by_value(lab_code)
         time.sleep(2)
 
-        # Parse the experiment details table and filter for available dates
         lab_dates = []
         current_date = datetime.now()
         
         try:
-            # Look for table rows containing experiment data
             rows = driver.find_elements(By.CSS_SELECTOR, "table tr")
             for row in rows:
                 cells = row.find_elements(By.TAG_NAME, "td")
-                if len(cells) >= 5:  # Week#, Subject Code, Experiment Title, Batch No, Experiment Submission Date
+                if len(cells) >= 5:
                     week_text = cells[0].text.strip()
                     subject_code = cells[1].text.strip()
                     experiment_title = cells[2].text.strip()
                     batch_no = cells[3].text.strip()
                     submission_date = cells[4].text.strip()
                     
-                    # Parse submission date to check if it's still open for upload
                     is_available = True
                     try:
-                        # Parse date in DD-MM-YYYY format
                         if submission_date and '-' in submission_date:
                             submission_dt = datetime.strptime(submission_date, "%d-%m-%Y")
-                            # Only show dates that are today or in the future
                             is_available = submission_dt.date() >= current_date.date()
                     except ValueError:
-                        # If date parsing fails, assume it's available
                         is_available = True
                     
-                    # Extract week number from week text (e.g., "Week-1" -> "1")
                     week_match = re.search(r'Week-?(\d+)', week_text, re.IGNORECASE)
                     if week_match and experiment_title and submission_date and is_available:
                         week_number = week_match.group(1)
@@ -544,12 +527,10 @@ def get_lab_dates(username, password, lab_code):
         driver.quit()
 
 def get_experiment_title(username, password, lab_code, week_number):
-    """Get experiment title for a specific lab and week"""
     options = _build_chrome_options()
     driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
-        # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
         try:
@@ -567,17 +548,14 @@ def get_experiment_title(username, password, lab_code, week_number):
                     driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
         time.sleep(3)
 
-        # Navigate to lab record page
         driver.get("https://samvidha.iare.ac.in/home?action=labrecord_std")
         time.sleep(3)
 
-        # Select the lab from first dropdown
         lab_select_element = driver.find_element(By.CSS_SELECTOR, "select")
         lab_select = Select(lab_select_element)
         lab_select.select_by_value(lab_code)
         time.sleep(2)
 
-        # Find the experiment title for the specific week
         try:
             rows = driver.find_elements(By.CSS_SELECTOR, "table tr")
             for row in rows:
@@ -585,8 +563,6 @@ def get_experiment_title(username, password, lab_code, week_number):
                 if len(cells) >= 3:
                     week_text = cells[0].text.strip()
                     experiment_title = cells[2].text.strip()
-                    
-                    # Check if this is the week we're looking for
                     week_match = re.search(r'Week-?(\d+)', week_text, re.IGNORECASE)
                     if week_match and week_match.group(1) == str(week_number):
                         return experiment_title
@@ -602,7 +578,6 @@ def get_experiment_title(username, password, lab_code, week_number):
         driver.quit()
 
 def compress_images_to_pdf(image_files, max_size_mb=1):
-    """Convert and compress images to PDF under specified size"""
     pdf_buffer = io.BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
     width, height = A4
@@ -613,7 +588,6 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 
-            # Calculate scaling to fit page
             img_width, img_height = img.size
             scale_w = (width - 40) / img_width
             scale_h = (height - 40) / img_height
@@ -623,7 +597,6 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
             new_height = int(img_height * scale)
             img = img.resize((new_width, new_height), Image.LANCZOS)
 
-            # Save to a temporary file for ReportLab
             temp_img_path = tempfile.mktemp(suffix='.jpg')
             img.save(temp_img_path, format='JPEG', quality=85, optimize=True)
 
@@ -632,7 +605,6 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
             c.drawImage(temp_img_path, x, y, width=new_width, height=new_height)
             c.showPage()
 
-            # Clean up temp image
             os.remove(temp_img_path)
         except Exception as e:
             print(f"Error processing image: {e}")
@@ -641,12 +613,10 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
     c.save()
     pdf_buffer.seek(0)
 
-    # Check size and compress if needed
     pdf_size = len(pdf_buffer.getvalue())
     max_size_bytes = max_size_mb * 1024 * 1024
 
     if pdf_size > max_size_bytes:
-        # Reduce quality and try again
         pdf_buffer = io.BytesIO()
         c = canvas.Canvas(pdf_buffer, pagesize=A4)
         for image_file in image_files:
@@ -680,7 +650,6 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
     driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
-        # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
 
@@ -703,11 +672,9 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
 
         time.sleep(3)
 
-        # Navigate to lab record page
         driver.get("https://samvidha.iare.ac.in/home?action=labrecord_std")
         time.sleep(5)
 
-        # Use specific IDs for form fields
         lab_select_element = driver.find_element(By.ID, "sub_code")
         driver.execute_script("arguments[0].scrollIntoView(true);", lab_select_element)
         lab_select = Select(lab_select_element)
@@ -717,21 +684,17 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
         driver.execute_script("arguments[0].scrollIntoView(true);", week_select_element)
         week_select = Select(week_select_element)
 
-        # Ensure week_value matches the actual option value
         week_value = None
         available_values = [opt.get_attribute('value') for opt in week_select.options]
         match = re.search(r'Week-?(\d+)', str(week_no))
         if match:
             possible_value = match.group(0)
             possible_number = match.group(1)
-            # Try full "Week-7" first
             if possible_value in available_values:
                 week_value = possible_value
-            # Try just "7"
             elif possible_number in available_values:
                 week_value = possible_number
             else:
-                # fallback: use first available value
                 week_value = available_values[0]
         else:
             week_value = available_values[0]
@@ -743,7 +706,6 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
         title_field.clear()
         title_field.send_keys(title)
 
-        # Assert that the title field is correctly set
         assert title_field.get_attribute("value") == title
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
@@ -802,28 +764,23 @@ def lab():
     data = session.get('attendance_data')
     
     if request.method == "POST":
-        # Handle lab record upload
         try:
             lab_code = request.form.get('lab_code')
             week_no = request.form.get('week_no')
             title = request.form.get('title')
-            # Sort images by filename to preserve order
             images = sorted(request.files.getlist('images'), key=lambda f: f.filename)
             
             if not all([lab_code, week_no, title]) or not images:
                 return render_template("lab.html", data=data, error="Missing required data for upload")
             
-            # Get credentials from session or request
             username = session.get('username')
             password = session.get('password')
             
             if not username or not password:
                 return render_template("lab.html", data=data, error="Session expired. Please login again.")
             
-            # Compress images to PDF
             pdf_file = compress_images_to_pdf(images)
             
-            # Upload to website
             result = upload_lab_record(username, password, lab_code, week_no, title, pdf_file)
             
             if result["success"]:
@@ -838,7 +795,6 @@ def lab():
 
 @app.route("/get_lab_subjects", methods=["POST"])
 def get_lab_subjects_route():
-    """API endpoint to fetch lab subjects"""
     try:
         username = session.get('username')
         password = session.get('password')
@@ -854,7 +810,6 @@ def get_lab_subjects_route():
 
 @app.route("/get_lab_dates", methods=["POST"])
 def get_lab_dates_route():
-    """API endpoint to fetch lab dates for a specific lab"""
     try:
         username = session.get('username')
         password = session.get('password')
@@ -874,7 +829,6 @@ def get_lab_dates_route():
 
 @app.route("/get_experiment_title", methods=["POST"])
 def get_experiment_title_route():
-    """API endpoint to fetch experiment title for a specific lab and week"""
     try:
         username = session.get('username')
         password = session.get('password')
