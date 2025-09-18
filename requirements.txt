@@ -4,3 +4,5 @@ webdriver-manager
 tabulate
 Pillow
 reportlab
+gunicorn
+upstash-redis
