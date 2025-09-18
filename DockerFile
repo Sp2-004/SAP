@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies for Chromium
+# Install system dependencies for Chromium and debugging tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
@@ -16,7 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libgtk-3-0 \
     libasound2 \
-    && rm -rf /var/lib/apt/lists/*
+    procps \
+    && rm -rf /var/lib/apt/lists/* \
+    && which chromium || echo "Chromium binary not found" \
+    && which chromedriver || echo "Chromedriver binary not found" \
+    && chromium --version || echo "Failed to get Chromium version" \
+    && chromedriver --version || echo "Failed to get Chromedriver version"
 
 # Set environment variables for Selenium
 ENV CHROME_BIN=/usr/bin/chromium
