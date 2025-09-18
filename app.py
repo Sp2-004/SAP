@@ -81,19 +81,36 @@ def cache_get(key):
         return None
     return val
 
-def get_attendance_data(username, password):
+def _build_chrome_options():
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # Point to Chromium binary on Render/apt installs
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
+    return options
 
-    driver = webdriver.Chrome(
-        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
-        options=options
-    )
+def _create_chromedriver_service():
+    candidates = [
+        os.environ.get("CHROMEDRIVER_PATH"),
+        "/usr/lib/chromium/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/bin/chromedriver",
+    ]
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return Service(p)
+    try:
+        path = ChromeDriverManager().install()
+        return Service(path)
+    except Exception:
+        # Let Selenium Manager try to resolve
+        return Service()
+
+def get_attendance_data(username, password):
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         driver.get(COLLEGE_LOGIN_URL)
@@ -375,17 +392,8 @@ def dashboard():
 
 def get_lab_subjects(username, password):
     """Fetch lab subjects from the website"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
-    driver = webdriver.Chrome(
-        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -440,17 +448,8 @@ def get_lab_subjects(username, password):
 
 def get_lab_dates(username, password, lab_code):
     """Fetch available lab dates and experiment details for a specific lab"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
-    driver = webdriver.Chrome(
-        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -535,17 +534,8 @@ def get_lab_dates(username, password, lab_code):
 
 def get_experiment_title(username, password, lab_code, week_number):
     """Get experiment title for a specific lab and week"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
-    driver = webdriver.Chrome(
-        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -675,17 +665,8 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
     return pdf_buffer
 
 def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
-    driver = webdriver.Chrome(
-        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
