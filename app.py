@@ -88,7 +88,18 @@ def _build_chrome_options():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
+    # Try to find a chromium/chrome binary
+    candidate_bins = [
+        os.environ.get("CHROME_BIN"),
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+    ]
+    for b in candidate_bins:
+        if b and os.path.isfile(b):
+            options.binary_location = b
+            break
     return options
 
 def _create_chromedriver_service():
