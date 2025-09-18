@@ -15,7 +15,6 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
 from tabulate import tabulate
 import time
 import re
@@ -92,7 +91,7 @@ def get_attendance_data(username, password):
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
 
     driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
         options=options
     )
 
@@ -384,7 +383,7 @@ def get_lab_subjects(username, password):
 
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
         options=options
     )
 
@@ -449,7 +448,7 @@ def get_lab_dates(username, password, lab_code):
 
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
         options=options
     )
 
@@ -544,7 +543,7 @@ def get_experiment_title(username, password, lab_code, week_number):
 
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
         options=options
     )
 
@@ -684,7 +683,7 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
 
     options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
     driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+        service=Service(os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")),
         options=options
     )
 
