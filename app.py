@@ -24,11 +24,14 @@ from PIL import Image
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
+import json
+import time
 
 import tempfile
 from werkzeug.utils import secure_filename
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from upstash_redis import Redis
 
 
 
@@ -39,6 +42,44 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 
 COLLEGE_LOGIN_URL = "https://samvidha.iare.ac.in/"
 ATTENDANCE_URL = "https://samvidha.iare.ac.in/home?action=course_content"
+
+# Optional: Upstash Redis cache (falls back to in-memory)
+UP_REDIS_URL = os.getenv("UPSTASH_REDIS_REST_URL")
+UP_REDIS_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+
+redis_client = None
+if UP_REDIS_URL and UP_REDIS_TOKEN:
+    try:
+        redis_client = Redis(url=UP_REDIS_URL, token=UP_REDIS_TOKEN)
+    except Exception:
+        redis_client = None
+
+_inmem_cache = {}
+
+def cache_set(key, value, ttl_seconds=1800):
+    if redis_client:
+        try:
+            redis_client.set(key, json.dumps(value), ex=ttl_seconds)
+            return
+        except Exception:
+            pass
+    _inmem_cache[key] = (time.time() + ttl_seconds, value)
+
+def cache_get(key):
+    if redis_client:
+        try:
+            v = redis_client.get(key)
+            return json.loads(v) if v else None
+        except Exception:
+            pass
+    entry = _inmem_cache.get(key)
+    if not entry:
+        return None
+    exp, val = entry
+    if time.time() > exp:
+        _inmem_cache.pop(key, None)
+        return None
+    return val
 
 def get_attendance_data(username, password):
     options = Options()
@@ -246,6 +287,12 @@ def dashboard():
         # Handle GET requests (navigation from other pages)
         data = session.get('attendance_data')
         if not data:
+            username = session.get('username')
+            if username:
+                cached = cache_get(f"att:{username}")
+                if cached:
+                    data = cached
+        if not data:
             return redirect("/")
         
         calendar_data = []
@@ -286,6 +333,11 @@ def dashboard():
     session['attendance_data'] = data
     session['username'] = username
     session['password'] = password
+
+    try:
+        cache_set(f"att:{username}", data, ttl_seconds=1800)
+    except Exception:
+        pass
 
     calendar_data = []
     date_attendance = data.get('date_attendance', {})
