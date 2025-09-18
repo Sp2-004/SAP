@@ -81,45 +81,40 @@ def _build_chrome_options():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Explicitly set Chromium binary
-    chromium_bin = "/usr/bin/chromium"
-    if os.path.isfile(chromium_bin):
-        options.binary_location = chromium_bin
-        print(f"DEBUG: Using Chromium binary: {chromium_bin}")
-    else:
-        print(f"DEBUG: Chromium binary not found at {chromium_bin}")
-    
-    # Check fallback Chrome binaries
+    # Check possible Chromium binary paths
     candidate_bins = [
-        os.environ.get("CHROME_BIN"),
+        "/usr/bin/chromium",
+        "/usr/lib/chromium-browser/chromium",
         "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
+        os.environ.get("CHROME_BIN"),
     ]
     for b in candidate_bins:
         if b and os.path.isfile(b):
             options.binary_location = b
-            print(f"DEBUG: Using fallback binary: {b}")
+            print(f"DEBUG: Using Chromium binary: {b}")
             break
+    else:
+        print("DEBUG: No Chromium/Chrome binary found in candidate paths: " + ", ".join([b for b in candidate_bins if b]))
+        # Log all executable paths for debugging
+        import glob
+        print("DEBUG: Available executables in /usr/bin: " + ", ".join(glob.glob("/usr/bin/*")))
+        print("DEBUG: Available executables in /usr/lib/chromium-browser: " + ", ".join(glob.glob("/usr/lib/chromium-browser/*")))
+    
     return options
 
 def _create_chromedriver_service():
-    # Explicitly set Chromium-driver path
-    chromedriver_path = "/usr/bin/chromedriver"
-    if os.path.isfile(chromedriver_path):
-        print(f"DEBUG: Using Chromium-driver: {chromedriver_path}")
-        return Service(chromedriver_path)
-    
-    # Check fallback paths
-    candidates = [
-        os.environ.get("CHROMEDRIVER_PATH"),
-        "/usr/lib/chromium/chromedriver",
-        "/usr/lib/chromium-browser/chromedriver",
+    # Check possible Chromium-driver paths
+    candidate_paths = [
         "/usr/bin/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/lib/chromium/chromedriver",
+        os.environ.get("CHROMEDRIVER_PATH"),
     ]
-    for p in candidates:
+    for p in candidate_paths:
         if p and os.path.isfile(p):
-            print(f"DEBUG: Using fallback Chromium-driver: {p}")
+            print(f"DEBUG: Using Chromium-driver: {p}")
             return Service(p)
     
     # Fallback to webdriver-manager
