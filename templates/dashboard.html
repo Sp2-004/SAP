@@ -41,7 +41,7 @@
   </div>
   
   <h3>📅 Attendance Calendar</h3>
-  <div id="cal-heatmap"></div>
+  <div id="cal-heatmap" style="min-height: 140px;"></div>
   
   <!-- Calendar CSS and JS -->
   <link rel="stylesheet" href="https://unpkg.com/cal-heatmap@4.2.4/dist/cal-heatmap.css" />
@@ -64,28 +64,53 @@
         
         if (calendarData && calendarData.length > 0) {
           try {
-            // Convert data to the format expected by CalHeatmap v4
-            const dataMap = {};
-            calendarData.forEach(item => {
-              const timestamp = new Date(item.date).getTime() / 1000;
-              dataMap[timestamp] = item.value;
-            });
+            // Determine dynamic start and range
+            const dates = calendarData.map(d => new Date(d.date));
+            const minDate = new Date(Math.min.apply(null, dates));
+            const today = new Date();
+            // Always include months up to today
+            const maxDate = today;
+            const start = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+            const end = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+            const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
             
+            // Build full date map for the whole semester (fill holidays)
+            const oneDay = 24 * 60 * 60 * 1000;
+            const fullMap = {};
+            const endOfMaxMonth = new Date(maxDate.getFullYear(), maxDate.getMonth() + 1, 0);
+            for (let t = start.getTime(); t <= endOfMaxMonth.getTime(); t += oneDay) {
+              const d = new Date(t);
+              const key = d.toISOString().slice(0,10);
+              fullMap[key] = 0; // default holiday
+            }
+            calendarData.forEach(item => {
+              const key = new Date(item.date).toISOString().slice(0,10);
+              fullMap[key] = item.value; // 1 present, -1 absent, 0 holiday
+            });
+
+            // Flatten to array for JSON source
+            const source = Object.keys(fullMap).map(k => ({ date: k, value: fullMap[k] }));
+
             const cal = new CalHeatmap();
             cal.paint({
               itemSelector: '#cal-heatmap',
-              domain: 'month',
-              subDomain: 'day',
-              data: dataMap,
-              start: new Date('2025-08-01'),
-              range: 6,
-              cellSize: 15,
-              cellPadding: 2,
-              domainGutter: 10,
-              legend: [0, 1],
-              legendColors: ['#eee', '#c6e48b', '#7bc96f', '#239a3b', '#196127'],
-              onClick: function(date, nb) {
-                console.log('Clicked on date:', new Date(date), 'with value:', nb);
+              date: { start: start },
+              domain: { type: 'month', gutter: 10, label: { position: 'top' } },
+              subDomain: {
+                type: 'day', width: 18, height: 18, radius: 3,
+                label: (timestamp) => new Date(timestamp).getDate().toString()
+              },
+              data: { source: source, type: 'json', x: 'date', y: 'value' },
+              range: Math.max(months, 1),
+              scale: {
+                color: {
+                  type: 'ordinal',
+                  domain: [-1, 0, 1],
+                  range: ['#e74c3c', '#ffffff', '#2ecc71']
+                }
+              },
+              onClick: (date, value) => {
+                console.log('Clicked:', new Date(date), 'value:', value);
               }
             });
           } catch (error) {

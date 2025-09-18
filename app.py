@@ -35,7 +35,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 app = Flask(__name__)
 #app.secret_key = 'd3a555c134099aaf6518e8ebde5af63961f84488351346ab2ecc21f95f61a8bc'
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 
 COLLEGE_LOGIN_URL = "https://samvidha.iare.ac.in/"
 ATTENDANCE_URL = "https://samvidha.iare.ac.in/home?action=course_content"
@@ -240,7 +240,7 @@ def calculate_attendance_percentage(rows):
 def login_page():
     return render_template("login.html")
 
-@app.route("/dashboard", methods=["POST"])
+@app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if request.method == "GET":
         # Handle GET requests (navigation from other pages)
@@ -254,7 +254,10 @@ def dashboard():
         for date_key in date_attendance:
             try:
                 dt = datetime.strptime(date_key, "%d-%m-%Y")
-                value = 1 if date_attendance[date_key]['present'] > 0 else 0
+                # 1 = present, -1 = absent, 0 = holiday (no record)
+                present_cnt = date_attendance[date_key]['present']
+                absent_cnt = date_attendance[date_key]['absent']
+                value = 1 if present_cnt > 0 else (-1 if absent_cnt > 0 else 0)
                 calendar_data.append({'date': dt.strftime("%Y-%m-%d"), 'value': value})
             except ValueError:
                 continue
@@ -293,7 +296,9 @@ def dashboard():
     for date_key in date_attendance:
         try:
             dt = datetime.strptime(date_key, "%d-%m-%Y")
-            value = 1 if date_attendance[date_key]['present'] > 0 else 0
+            present_cnt = date_attendance[date_key]['present']
+            absent_cnt = date_attendance[date_key]['absent']
+            value = 1 if present_cnt > 0 else (-1 if absent_cnt > 0 else 0)
             calendar_data.append({'date': dt.strftime("%Y-%m-%d"), 'value': value})
         except ValueError:
             print(f"DEBUG: Failed to parse date: {date_key}")
@@ -752,7 +757,8 @@ def lab():
             lab_code = request.form.get('lab_code')
             week_no = request.form.get('week_no')
             title = request.form.get('title')
-            images = request.files.getlist('images')
+            # Sort images by filename to preserve order
+            images = sorted(request.files.getlist('images'), key=lambda f: f.filename)
             
             if not all([lab_code, week_no, title]) or not images:
                 return render_template("lab.html", data=data, error="Missing required data for upload")
