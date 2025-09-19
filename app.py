@@ -897,5 +897,16 @@ def ensure_interactable(driver, element):
     if not element.is_displayed() or not element.is_enabled():
         raise Exception("Element not interactable (not visible or not enabled)")
 
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {str(error)}")
+    return render_template('login.html', error="An internal server error occurred. Please try again."), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception: {str(e)}")
+    logger.error(f"Traceback: {traceback.format_exc()}")
+    return render_template('login.html', error="An unexpected error occurred. Please try again."), 500
+
 if __name__ == "__main__":
     app.run(debug=True)

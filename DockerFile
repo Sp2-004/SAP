@@ -17,15 +17,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libasound2 \
     procps \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && which chromium || echo "Chromium binary not found" \
     && which chromedriver || echo "Chromedriver binary not found" \
     && chromium --version || echo "Failed to get Chromium version" \
     && chromedriver --version || echo "Failed to get Chromedriver version"
 
+# Download and install Chrome for Testing (more reliable than system Chrome)
+RUN mkdir -p /app/.chrome-for-testing && \
+    cd /app/.chrome-for-testing && \
+    wget -q https://storage.googleapis.com/chrome-for-testing-public/120.0.6099.109/linux64/chrome-linux64.zip && \
+    wget -q https://storage.googleapis.com/chrome-for-testing-public/120.0.6099.109/linux64/chromedriver-linux64.zip && \
+    unzip -q chrome-linux64.zip && \
+    unzip -q chromedriver-linux64.zip && \
+    chmod +x chrome-linux64/chrome chromedriver-linux64/chromedriver && \
+    rm *.zip
+
 # Set environment variables for Selenium
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV CHROME_BIN=/app/.chrome-for-testing/chrome-linux64/chrome
+ENV CHROMEDRIVER_PATH=/app/.chrome-for-testing/chromedriver-linux64/chromedriver
 
 # Set working directory
 WORKDIR /app

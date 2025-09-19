@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: attendance-tracker
+    env: python
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python -m gunicorn app:app --bind=0.0.0.0:$PORT --workers=1 --threads=2 --timeout=300 --preload --log-level=info
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: CHROME_BIN
+        value: /app/.chrome-for-testing/chrome-linux64/chrome
+      - key: CHROMEDRIVER_PATH
+        value: /app/.chrome-for-testing/chromedriver-linux64/chromedriver
