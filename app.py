@@ -30,6 +30,19 @@ from werkzeug.utils import secure_filename
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from upstash_redis import Redis
+import logging
+import traceback
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import queue
+import atexit
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
@@ -37,6 +50,162 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 COLLEGE_LOGIN_URL = "https://samvidha.iare.ac.in/"
 ATTENDANCE_URL = "https://samvidha.iare.ac.in/home?action=course_content"
 
+# WebDriver pool for handling concurrent requests
+class WebDriverPool:
+    def __init__(self, max_drivers=10):
+        self.max_drivers = max_drivers
+        self.available_drivers = queue.Queue()
+        self.active_drivers = set()
+        self.lock = threading.Lock()
+        
+    def get_driver(self, timeout=30):
+        """Get a WebDriver instance from the pool"""
+        try:
+            # Try to get an existing driver
+            driver = self.available_drivers.get_nowait()
+            with self.lock:
+                self.active_drivers.add(driver)
+            return driver
+        except queue.Empty:
+            # Create new driver if under limit
+            with self.lock:
+                if len(self.active_drivers) < self.max_drivers:
+                    try:
+                        driver = self._create_driver()
+                        self.active_drivers.add(driver)
+                        logger.info(f"Created new WebDriver. Active: {len(self.active_drivers)}")
+                        return driver
+                    except Exception as e:
+                        logger.error(f"Failed to create WebDriver: {e}")
+                        raise
+            
+            # Wait for available driver
+            try:
+                driver = self.available_drivers.get(timeout=timeout)
+                with self.lock:
+                    self.active_drivers.add(driver)
+                return driver
+            except queue.Empty:
+                raise TimeoutError("No WebDriver available within timeout")
+    
+    def return_driver(self, driver):
+        """Return a WebDriver instance to the pool"""
+        try:
+            # Reset driver state
+            driver.delete_all_cookies()
+            driver.get("about:blank")
+            
+            with self.lock:
+                self.active_drivers.discard(driver)
+            self.available_drivers.put(driver)
+        except Exception as e:
+            logger.error(f"Error returning driver to pool: {e}")
+            self._cleanup_driver(driver)
+    
+    def _create_driver(self):
+        """Create a new WebDriver instance"""
+        options = self._build_chrome_options()
+        service = self._create_chromedriver_service()
+        
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(10)
+        return driver
+    
+    def _build_chrome_options(self):
+        """Build Chrome options for WebDriver"""
+        options = Options()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-plugins")
+        options.add_argument("--disable-images")
+        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        # Try to find Chrome binary
+        candidate_bins = [
+            os.environ.get("CHROME_BIN"),
+            "/app/.chrome-for-testing/chrome-linux64/chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/opt/google/chrome/chrome",
+        ]
+        
+        for binary in candidate_bins:
+            if binary and os.path.isfile(binary):
+                options.binary_location = binary
+                logger.info(f"Using Chrome binary: {binary}")
+                break
+        else:
+            logger.warning("No Chrome binary found, using system default")
+        
+        return options
+    
+    def _create_chromedriver_service(self):
+        """Create ChromeDriver service"""
+        candidates = [
+            os.environ.get("CHROMEDRIVER_PATH"),
+            "/app/.chrome-for-testing/chromedriver-linux64/chromedriver",
+            "/usr/bin/chromedriver",
+            "/usr/lib/chromium-browser/chromedriver",
+            "/usr/lib/chromium/chromedriver",
+        ]
+        
+        for path in candidates:
+            if path and os.path.isfile(path):
+                logger.info(f"Using ChromeDriver: {path}")
+                return Service(path)
+        
+        # Fallback to webdriver-manager
+        try:
+            path = ChromeDriverManager().install()
+            logger.info(f"ChromeDriver installed via webdriver-manager: {path}")
+            return Service(path)
+        except Exception as e:
+            logger.error(f"Failed to install ChromeDriver: {e}")
+            # Let Selenium Manager handle it
+            return Service()
+    
+    def _cleanup_driver(self, driver):
+        """Clean up a WebDriver instance"""
+        try:
+            driver.quit()
+        except Exception as e:
+            logger.error(f"Error cleaning up driver: {e}")
+        finally:
+            with self.lock:
+                self.active_drivers.discard(driver)
+    
+    def cleanup_all(self):
+        """Clean up all WebDriver instances"""
+        logger.info("Cleaning up WebDriver pool...")
+        
+        # Clean up available drivers
+        while not self.available_drivers.empty():
+            try:
+                driver = self.available_drivers.get_nowait()
+                self._cleanup_driver(driver)
+            except queue.Empty:
+                break
+        
+        # Clean up active drivers
+        with self.lock:
+            for driver in list(self.active_drivers):
+                self._cleanup_driver(driver)
+
+# Global WebDriver pool
+driver_pool = WebDriverPool(max_drivers=5)  # Limit concurrent drivers
+
+# Cleanup on exit
+atexit.register(driver_pool.cleanup_all)
 # Optional: Upstash Redis cache (falls back to in-memory)
 UP_REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
 UP_REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
@@ -45,8 +214,10 @@ redis_client = None
 if UP_REDIS_URL and UP_REDIS_TOKEN:
     try:
         redis_client = Redis(url=UP_REDIS_URL, token=UP_REDIS_TOKEN)
+        logger.info("Connected to Upstash Redis")
     except Exception:
         redis_client = None
+        logger.warning("Failed to connect to Redis, using in-memory cache")
 
 _inmem_cache = {}
 
@@ -55,7 +226,8 @@ def cache_set(key, value, ttl_seconds=1800):
         try:
             redis_client.set(key, json.dumps(value), ex=ttl_seconds)
             return
-        except Exception:
+        except Exception as e:
+            logger.error(f"Redis cache set error: {e}")
             pass
     _inmem_cache[key] = (time.time() + ttl_seconds, value)
 
@@ -64,7 +236,8 @@ def cache_get(key):
         try:
             v = redis_client.get(key)
             return json.loads(v) if v else None
-        except Exception:
+        except Exception as e:
+            logger.error(f"Redis cache get error: {e}")
             pass
     entry = _inmem_cache.get(key)
     if not entry:
@@ -75,55 +248,30 @@ def cache_get(key):
         return None
     return val
 
-def _build_chrome_options():
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-plugins")
-    options.add_argument("--disable-images")
-    options.add_argument("--disable-javascript")
-    
-    # Try to find a chromium/chrome binary
-    candidate_bins = [
-        os.environ.get("CHROME_BIN"),
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/opt/google/chrome/chrome",
-    ]
-    for b in candidate_bins:
-        if b and os.path.isfile(b):
-            options.binary_location = b
-            break
-    return options
-
-def _create_chromedriver_service():
-    candidates = [
-        os.environ.get("CHROMEDRIVER_PATH"),
-        "/usr/bin/chromedriver",
-        "/usr/lib/chromium-browser/chromedriver",
-        "/usr/lib/chromium/chromedriver",
-    ]
-    for p in candidates:
-        if p and os.path.isfile(p):
-            return Service(p)
-    try:
-        path = ChromeDriverManager().install()
-        return Service(path)
-    except Exception:
-        # Let Selenium Manager try to resolve
-        return Service()
-
 def get_attendance_data(username, password):
-    options = _build_chrome_options()
-    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
-
+    """Get attendance data using WebDriver pool"""
+    driver = None
     try:
+        # Get driver from pool
+        driver = driver_pool.get_driver(timeout=30)
+        logger.info(f"Got WebDriver for user: {username}")
+        
+        return _scrape_attendance_data(driver, username, password)
+        
+    except TimeoutError:
+        logger.error("Timeout waiting for WebDriver")
+        return {"error": "System busy, please try again in a moment"}
+    except Exception as e:
+        logger.error(f"Error getting attendance data: {e}")
+        return {"error": f"System error: {str(e)}"}
+    finally:
+        if driver:
+            driver_pool.return_driver(driver)
+
+def _scrape_attendance_data(driver, username, password):
+    """Scrape attendance data using provided WebDriver"""
+    try:
+        logger.info(f"Starting attendance scrape for user: {username}")
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
 
@@ -148,6 +296,7 @@ def get_attendance_data(username, password):
         time.sleep(3)
         # Better login check
         if "home" not in driver.current_url:
+            logger.warning(f"Login failed for user: {username}")
             return {"error": "Invalid username or password."}
 
         # Instead of forcing get(), click the menu item for Attendance
@@ -161,15 +310,16 @@ def get_attendance_data(username, password):
         rows = driver.find_elements(By.TAG_NAME, "tr")
 
         if not rows:
+            logger.warning(f"No attendance data found for user: {username}")
             return {"error": "No attendance data found (maybe server issue)."}
 
+        logger.info(f"Successfully scraped attendance data for user: {username}")
         return calculate_attendance_percentage(rows)
 
     except Exception as e:
-        print("DEBUG ERROR:", str(e))
+        logger.error(f"Scraping error for user {username}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {"error": f"Exception: {str(e)}"}
-    finally:
-        driver.quit()
 
 def calculate_attendance_percentage(rows):
     result = {
@@ -353,6 +503,40 @@ def dashboard():
     username = request.form["username"]
     password = request.form["password"]
 
+    # Check cache first
+    cached_data = cache_get(f"att:{username}")
+    if cached_data:
+        logger.info(f"Using cached data for user: {username}")
+        session['attendance_data'] = cached_data
+        session['username'] = username
+        session['password'] = password
+        
+        calendar_data = []
+        date_attendance = cached_data.get('date_attendance', {})
+        
+        for date_key in date_attendance:
+            try:
+                dt = datetime.strptime(date_key, "%d-%m-%Y")
+                present_cnt = date_attendance[date_key]['present']
+                absent_cnt = date_attendance[date_key]['absent']
+                value = 1 if present_cnt > 0 else (-1 if absent_cnt > 0 else 0)
+                calendar_data.append({'date': dt.strftime("%Y-%m-%d"), 'value': value})
+            except ValueError:
+                continue
+        
+        table_data = []
+        for i, (code, sub) in enumerate(cached_data["subjects"].items(), start=1):
+            table_data.append([i, code, sub["name"], sub["present"], sub["absent"], f"{sub['percentage']}%"])
+
+        table_html = tabulate(
+            table_data,
+            headers=["S.No", "Course Code", "Course Name", "Present", "Absent", "Percentage"],
+            tablefmt="html"
+        )
+
+        return render_template("dashboard.html", data=cached_data, calendar_data=calendar_data, table_html=table_html)
+
+    # Scrape fresh data
     data = get_attendance_data(username, password)
 
     if "error" in data:
@@ -364,6 +548,7 @@ def dashboard():
 
     try:
         cache_set(f"att:{username}", data, ttl_seconds=1800)
+        logger.info(f"Cached attendance data for user: {username}")
     except Exception:
         pass
 
@@ -394,10 +579,10 @@ def dashboard():
 
 def get_lab_subjects(username, password):
     """Fetch lab subjects from the website"""
-    options = _build_chrome_options()
-    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
+    driver = None
 
     try:
+        driver = driver_pool.get_driver(timeout=30)
         # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
@@ -438,21 +623,22 @@ def get_lab_subjects(username, password):
                     })
             return lab_options
         except Exception as e:
-            print(f"Error finding lab dropdown: {e}")
+            logger.error(f"Error finding lab dropdown: {e}")
             return []
 
     except Exception as e:
-        print(f"Error fetching lab subjects: {e}")
+        logger.error(f"Error fetching lab subjects: {e}")
         return []
     finally:
-        driver.quit()
+        if driver:
+            driver_pool.return_driver(driver)
 
 def get_lab_dates(username, password, lab_code):
     """Fetch available lab dates and experiment details for a specific lab"""
-    options = _build_chrome_options()
-    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
+    driver = None
 
     try:
+        driver = driver_pool.get_driver(timeout=30)
         # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
@@ -523,22 +709,23 @@ def get_lab_dates(username, password, lab_code):
                             'is_available': is_available
                         })
         except Exception as e:
-            print(f"Error parsing lab dates: {e}")
+            logger.error(f"Error parsing lab dates: {e}")
 
         return lab_dates
 
     except Exception as e:
-        print(f"Error fetching lab dates: {e}")
+        logger.error(f"Error fetching lab dates: {e}")
         return []
     finally:
-        driver.quit()
+        if driver:
+            driver_pool.return_driver(driver)
 
 def get_experiment_title(username, password, lab_code, week_number):
     """Get experiment title for a specific lab and week"""
-    options = _build_chrome_options()
-    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
+    driver = None
 
     try:
+        driver = driver_pool.get_driver(timeout=30)
         # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
@@ -581,15 +768,16 @@ def get_experiment_title(username, password, lab_code, week_number):
                     if week_match and week_match.group(1) == str(week_number):
                         return experiment_title
         except Exception as e:
-            print(f"Error finding experiment title: {e}")
+            logger.error(f"Error finding experiment title: {e}")
 
         return ""
 
     except Exception as e:
-        print(f"Error fetching experiment title: {e}")
+        logger.error(f"Error fetching experiment title: {e}")
         return ""
     finally:
-        driver.quit()
+        if driver:
+            driver_pool.return_driver(driver)
 
 def compress_images_to_pdf(image_files, max_size_mb=1):
     """Convert and compress images to PDF under specified size"""
@@ -666,10 +854,10 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
     return pdf_buffer
 
 def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
-    options = _build_chrome_options()
-    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
+    driver = None
 
     try:
+        driver = driver_pool.get_driver(timeout=30)
         # Login
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
@@ -724,7 +912,7 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
                 week_value = available_values[0]
         else:
             week_value = available_values[0]
-        print("Selecting week value:", week_value)
+        logger.info(f"Selecting week value: {week_value}")
         week_select.select_by_value(week_value)
 
         title_field = driver.find_element(By.ID, "exp_title")
@@ -763,7 +951,8 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
     except Exception as e:
         return {"success": False, "message": f"Error uploading lab record: {str(e)}"}
     finally:
-        driver.quit()
+        if driver:
+            driver_pool.return_driver(driver)
 
 @app.route("/b_safe", methods=["GET"])
 def b_safe():
