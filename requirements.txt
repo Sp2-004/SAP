@@ -1,14 +1,3 @@
-<<<<<<< HEAD
-flask
-selenium
-webdriver-manager
-tabulate
-Pillow
-reportlab
-gunicorn
-upstash-redis
-requests
-=======
 flask==3.0.3
 selenium==4.25.0
 webdriver-manager==4.0.2
@@ -17,4 +6,4 @@ Pillow==10.4.0
 reportlab==4.2.2
 gunicorn==23.0.0
 upstash-redis==1.4.0
->>>>>>> 9d6d6a8d763fb4be3931b598786495bb9b21de84
+requests==2.31.0

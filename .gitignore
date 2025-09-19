@@ -1,2 +1,13 @@
-node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
 .env
+*.log
+.DS_Store
+*.tmp
+*.temp
