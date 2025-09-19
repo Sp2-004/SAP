@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 chromium-browser
 chromium-chromedriver
+=======
+chromium
+chromium-driver
+>>>>>>> 9d6d6a8d763fb4be3931b598786495bb9b21de84
 fonts-liberation
 libnss3
 libx11-6
