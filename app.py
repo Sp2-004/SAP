@@ -1,7 +1,7 @@
 import hashlib
 
 # Monkey-patch for openssl_md5() compatibility with Werkzeug's secure_filename
-if hasattr(hashlib, "md5"):
+if hashlib.md5:
     _original_md5 = hashlib.md5
     def _md5_patch(*args, **kwargs):
         return _original_md5(*args)
@@ -24,38 +24,109 @@ from PIL import Image
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
-
+import json
+import time
 import tempfile
 from werkzeug.utils import secure_filename
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
-
-
+from upstash_redis import Redis
 
 app = Flask(__name__)
-#app.secret_key = 'd3a555c134099aaf6518e8ebde5af63961f84488351346ab2ecc21f95f61a8bc'
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-secret")
 
 COLLEGE_LOGIN_URL = "https://samvidha.iare.ac.in/"
 ATTENDANCE_URL = "https://samvidha.iare.ac.in/home?action=course_content"
 
-def get_attendance_data(username, password):
+# Optional: Upstash Redis cache (falls back to in-memory)
+UP_REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
+UP_REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+
+redis_client = None
+if UP_REDIS_URL and UP_REDIS_TOKEN:
+    try:
+        redis_client = Redis(url=UP_REDIS_URL, token=UP_REDIS_TOKEN)
+    except Exception:
+        redis_client = None
+
+_inmem_cache = {}
+
+def cache_set(key, value, ttl_seconds=1800):
+    if redis_client:
+        try:
+            redis_client.set(key, json.dumps(value), ex=ttl_seconds)
+            return
+        except Exception:
+            pass
+    _inmem_cache[key] = (time.time() + ttl_seconds, value)
+
+def cache_get(key):
+    if redis_client:
+        try:
+            v = redis_client.get(key)
+            return json.loads(v) if v else None
+        except Exception:
+            pass
+    entry = _inmem_cache.get(key)
+    if not entry:
+        return None
+    exp, val = entry
+    if time.time() > exp:
+        _inmem_cache.pop(key, None)
+        return None
+    return val
+
+def _build_chrome_options():
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-images")
+    options.add_argument("--disable-javascript")
+    
+    # Try to find a chromium/chrome binary
+    candidate_bins = [
+        os.environ.get("CHROME_BIN"),
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/opt/google/chrome/chrome",
+    ]
+    for b in candidate_bins:
+        if b and os.path.isfile(b):
+            options.binary_location = b
+            break
+    return options
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+def _create_chromedriver_service():
+    candidates = [
+        os.environ.get("CHROMEDRIVER_PATH"),
+        "/usr/bin/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/lib/chromium/chromedriver",
+    ]
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return Service(p)
+    try:
+        path = ChromeDriverManager().install()
+        return Service(path)
+    except Exception:
+        # Let Selenium Manager try to resolve
+        return Service()
+
+def get_attendance_data(username, password):
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         driver.get(COLLEGE_LOGIN_URL)
         time.sleep(2)
-        print(driver.page_source[:1000])  # Print first 1000 characters for debugging
 
         try:
             driver.find_element(By.ID, "txt_uname").send_keys(username)
@@ -73,15 +144,14 @@ def get_attendance_data(username, password):
                 except:
                     driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
             else:
-                print(driver.page_source[:1000])
                 raise Exception("Could not find login input fields")
 
         time.sleep(3)
-        # 🔎 Better login check
+        # Better login check
         if "home" not in driver.current_url:
             return {"error": "Invalid username or password."}
 
-        # 🔎 Instead of forcing get(), click the menu item for Attendance
+        # Instead of forcing get(), click the menu item for Attendance
         try:
             attendance_link = driver.find_element(By.LINK_TEXT, "Course Content")
             attendance_link.click()
@@ -97,11 +167,11 @@ def get_attendance_data(username, password):
         return calculate_attendance_percentage(rows)
 
     except Exception as e:
-        # print error for debugging
         print("DEBUG ERROR:", str(e))
         return {"error": f"Exception: {str(e)}"}
     finally:
         driver.quit()
+
 def calculate_attendance_percentage(rows):
     result = {
         "subjects": {},
@@ -246,6 +316,12 @@ def dashboard():
         # Handle GET requests (navigation from other pages)
         data = session.get('attendance_data')
         if not data:
+            username = session.get('username')
+            if username:
+                cached = cache_get(f"att:{username}")
+                if cached:
+                    data = cached
+        if not data:
             return redirect("/")
         
         calendar_data = []
@@ -287,11 +363,13 @@ def dashboard():
     session['username'] = username
     session['password'] = password
 
+    try:
+        cache_set(f"att:{username}", data, ttl_seconds=1800)
+    except Exception:
+        pass
+
     calendar_data = []
     date_attendance = data.get('date_attendance', {})
-    
-    # Debug: Print date_attendance to see what we have
-    print("DEBUG: date_attendance =", date_attendance)
     
     for date_key in date_attendance:
         try:
@@ -301,12 +379,8 @@ def dashboard():
             value = 1 if present_cnt > 0 else (-1 if absent_cnt > 0 else 0)
             calendar_data.append({'date': dt.strftime("%Y-%m-%d"), 'value': value})
         except ValueError:
-            print(f"DEBUG: Failed to parse date: {date_key}")
             continue
     
-    # Debug: Print calendar_data to see what we're sending to template
-    print("DEBUG: calendar_data =", calendar_data)
-
     table_data = []
     for i, (code, sub) in enumerate(data["subjects"].items(), start=1):
         table_data.append([i, code, sub["name"], sub["present"], sub["absent"], f"{sub['percentage']}%"])
@@ -321,16 +395,8 @@ def dashboard():
 
 def get_lab_subjects(username, password):
     """Fetch lab subjects from the website"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -351,7 +417,6 @@ def get_lab_subjects(username, password):
                 except:
                     driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
             else:
-                print(driver.page_source[:1000])
                 raise Exception("Could not find login input fields")
         time.sleep(3)
 
@@ -385,16 +450,8 @@ def get_lab_subjects(username, password):
 
 def get_lab_dates(username, password, lab_code):
     """Fetch available lab dates and experiment details for a specific lab"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -479,16 +536,8 @@ def get_lab_dates(username, password, lab_code):
 
 def get_experiment_title(username, password, lab_code, week_number):
     """Get experiment title for a specific lab and week"""
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -618,16 +667,8 @@ def compress_images_to_pdf(image_files, max_size_mb=1):
     return pdf_buffer
 
 def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+    options = _build_chrome_options()
+    driver = webdriver.Chrome(service=_create_chromedriver_service(), options=options)
 
     try:
         # Login
@@ -648,7 +689,6 @@ def upload_lab_record(username, password, lab_code, week_no, title, pdf_file):
                 except:
                     driver.find_element(By.CSS_SELECTOR, "input[type='submit']").click()
             else:
-                print(driver.page_source[:1000])
                 raise Exception("Could not find login input fields")
 
         time.sleep(3)
