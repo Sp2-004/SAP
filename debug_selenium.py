@@ -21,6 +21,7 @@ def test_chrome_setup():
     # Check for Chrome binaries
     candidate_bins = [
         os.environ.get("CHROME_BIN"),
+        "/opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome",
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
         "/usr/bin/google-chrome",
@@ -43,6 +44,7 @@ def test_chrome_setup():
     # Check for ChromeDriver
     candidate_drivers = [
         os.environ.get("CHROMEDRIVER_PATH"),
+        "/opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver",
         "/usr/bin/chromedriver",
         "/usr/lib/chromium-browser/chromedriver",
         "/usr/lib/chromium/chromedriver",

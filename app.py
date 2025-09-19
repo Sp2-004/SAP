@@ -132,6 +132,7 @@ class WebDriverPool:
         candidate_bins = [
             os.environ.get("CHROME_BIN"),
             "/app/.chrome-for-testing/chrome-linux64/chrome",
+            "/opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome",
             "/usr/bin/chromium-browser",
             "/usr/bin/chromium",
             "/usr/bin/google-chrome",
@@ -154,6 +155,7 @@ class WebDriverPool:
         candidates = [
             os.environ.get("CHROMEDRIVER_PATH"),
             "/app/.chrome-for-testing/chromedriver-linux64/chromedriver",
+            "/opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver",
             "/usr/bin/chromedriver",
             "/usr/lib/chromium-browser/chromedriver",
             "/usr/lib/chromium/chromedriver",
@@ -166,13 +168,26 @@ class WebDriverPool:
         
         # Fallback to webdriver-manager
         try:
-            path = ChromeDriverManager().install()
-            logger.info(f"ChromeDriver installed via webdriver-manager: {path}")
-            return Service(path)
+            # Only try webdriver-manager if we have Chrome available
+            chrome_available = any(
+                binary and os.path.isfile(binary) 
+                for binary in [
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/google-chrome-stable",
+                    "/usr/bin/chromium-browser",
+                    "/usr/bin/chromium"
+                ]
+            )
+            if chrome_available:
+                path = ChromeDriverManager().install()
+                logger.info(f"ChromeDriver installed via webdriver-manager: {path}")
+                return Service(path)
+            else:
+                logger.error("No Chrome binary found for webdriver-manager")
+                raise Exception("Chrome binary not found")
         except Exception as e:
             logger.error(f"Failed to install ChromeDriver: {e}")
-            # Let Selenium Manager handle it
-            return Service()
+            raise Exception(f"ChromeDriver setup failed: {e}")
     
     def _cleanup_driver(self, driver):
         """Clean up a WebDriver instance"""
@@ -202,7 +217,7 @@ class WebDriverPool:
                 self._cleanup_driver(driver)
 
 # Global WebDriver pool
-driver_pool = WebDriverPool(max_drivers=5)  # Limit concurrent drivers
+driver_pool = WebDriverPool(max_drivers=3)  # Reduce concurrent drivers for Render
 
 # Cleanup on exit
 atexit.register(driver_pool.cleanup_all)
@@ -262,6 +277,9 @@ def get_attendance_data(username, password):
         logger.error("Timeout waiting for WebDriver")
         return {"error": "System busy, please try again in a moment"}
     except Exception as e:
+        if "Chrome binary not found" in str(e) or "ChromeDriver setup failed" in str(e):
+            logger.error(f"Chrome setup error: {e}")
+            return {"error": "Server configuration issue. Please contact administrator."}
         logger.error(f"Error getting attendance data: {e}")
         return {"error": f"System error: {str(e)}"}
     finally:
@@ -458,6 +476,13 @@ def calculate_attendance_percentage(rows):
 @app.route("/", methods=["GET"])
 def login_page():
     return render_template("login.html")
+
+@app.route("/favicon.ico")
+def favicon():
+    # Return the IARE favicon or a 204 No Content
+    from flask import abort
+    abort(204)
+
 
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
