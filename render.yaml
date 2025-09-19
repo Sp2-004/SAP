@@ -13,9 +13,6 @@ services:
       unzip -q chromedriver-linux64.zip &&
       chmod +x chrome-linux64/chrome chromedriver-linux64/chromedriver &&
       rm *.zip &&
-      ls -la /opt/render/project/src/.chrome-for-testing/ &&
-      /opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome --version &&
-      /opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver --version
     startCommand: python -m gunicorn app:app --bind=0.0.0.0:$PORT --workers=2 --threads=2 --timeout=300 --preload --log-level=info --max-requests=1000 --max-requests-jitter=100
     envVars:
       - key: FLASK_SECRET_KEY

@@ -131,8 +131,8 @@ class WebDriverPool:
         # Try to find Chrome binary
         candidate_bins = [
             os.environ.get("CHROME_BIN"),
-            "/app/.chrome-for-testing/chrome-linux64/chrome",
             "/opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome",
+            "/app/.chrome-for-testing/chrome-linux64/chrome",
             "/usr/bin/chromium-browser",
             "/usr/bin/chromium",
             "/usr/bin/google-chrome",
@@ -154,8 +154,8 @@ class WebDriverPool:
         """Create ChromeDriver service"""
         candidates = [
             os.environ.get("CHROMEDRIVER_PATH"),
-            "/app/.chrome-for-testing/chromedriver-linux64/chromedriver",
             "/opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver",
+            "/app/.chrome-for-testing/chromedriver-linux64/chromedriver",
             "/usr/bin/chromedriver",
             "/usr/lib/chromium-browser/chromedriver",
             "/usr/lib/chromium/chromedriver",

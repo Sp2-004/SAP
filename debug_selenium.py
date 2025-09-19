@@ -22,12 +22,13 @@ def test_chrome_setup():
     candidate_bins = [
         os.environ.get("CHROME_BIN"),
         "/opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome",
-        "/usr/bin/chromium-browser",
+        "/opt/render/project/src/.chrome-for-testing/chrome-linux64/chrome",
+        "/app/.chrome-for-testing/chrome-linux64/chrome",
         "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
         "/usr/bin/google-chrome-stable",
         "/opt/google/chrome/chrome",
-        "/app/.chrome-for-testing/chrome-linux64/chrome",
     ]
     
     chrome_binary = None
@@ -45,10 +46,11 @@ def test_chrome_setup():
     candidate_drivers = [
         os.environ.get("CHROMEDRIVER_PATH"),
         "/opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver",
-        "/usr/bin/chromedriver",
-        "/usr/lib/chromium-browser/chromedriver",
-        "/usr/lib/chromium/chromedriver",
+        "/opt/render/project/src/.chrome-for-testing/chromedriver-linux64/chromedriver",
         "/app/.chrome-for-testing/chromedriver-linux64/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/bin/chromedriver",
+        "/usr/lib/chromium/chromedriver",
     ]
     
     chromedriver_path = None
